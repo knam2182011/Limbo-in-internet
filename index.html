@@ -1,1 +1,196 @@
-hello
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <title>Limbo Keys — Circle Rotation</title>
+  <style>
+    body {
+      margin:0;
+      height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:#00192b;
+      color:#fff;
+      font-family:Segoe UI, Roboto, Arial;
+    }
+    #startBtn {
+      padding:18px 28px;
+      border-radius:12px;
+      background:linear-gradient(90deg,#ffcc00,#ff7a00);
+      border:none;
+      cursor:pointer;
+      box-shadow:0 8px 30px rgba(0,0,0,0.6);
+      font-weight:700;
+      font-size:18px;
+    }
+    #hint { margin-top:12px; color:#bcd; font-size:13px; text-align:center;}
+  </style>
+</head>
+<body>
+  <div>
+    <button id="startBtn">🔑 Mở 8 chìa khóa (Limbo style)</button>
+    <div id="hint">Cho phép pop-up nếu trình duyệt báo chặn. File: key.jpg, sound.mp3</div>
+    <audio id="bgSound" src="sound.mp3"></audio>
+  </div>
+
+  <script>
+  let wins = [];
+  let allowClose = false; // 🚨 chỉ cho phép đóng khi sang giai đoạn 2
+
+  document.getElementById('startBtn').addEventListener('click', () => {
+    const bg = document.getElementById('bgSound');
+    bg.loop = false;
+    bg.currentTime = 0;
+    bg.play().catch(()=>{});
+
+    spawnKeys();
+  });
+
+  function spawnKeys(){
+    const numKeys = 8;
+    const cols = 4, rows = 2;
+    const winW = 200, winH = 200;
+    const gap = 14;
+    const startX = 400, startY = 200;
+    const startDelay = 4000;
+    const movePeriod = 8800;
+    const swapInterval = 300;
+    const animDuration = 150;
+
+    const basePositions = [];
+    for (let i=0;i<numKeys;i++){
+      const c = i % cols;
+      const r = Math.floor(i/cols);
+      basePositions.push({left: startX + c*(winW+gap), top: startY + r*(winH+gap)});
+    }
+
+    wins = [];
+    for (let i=0;i<numKeys;i++){
+      const p = basePositions[i];
+      const opts = `width=${winW},height=${winH},left=${p.left},top=${p.top}`;
+      const w = window.open("", "_blank", opts);
+      if (!w) {
+        alert("Trình duyệt chặn pop-up. Cho phép pop-up rồi thử lại.");
+        return;
+      }
+
+      w.document.write(`
+        <html><head><meta charset="utf-8"><title>Key</title>
+        <style>
+          body{margin:0;background:#000;display:flex;align-items:center;justify-content:center;cursor:pointer}
+          img{width:100%;height:100%;object-fit:contain}
+        </style>
+        </head><body>
+          <img src="key.jpg" alt="key">
+          <script>
+            document.body.addEventListener('click', () => {
+              if(window.opener && window.opener.allowClose){
+                window.opener.closeAllKeys();
+              }
+            });
+          <\/script>
+        </body></html>
+      `);
+
+      wins.push({win: w, x: p.left, y: p.top});
+    }
+
+    document.body.style.display = 'none';
+
+    function animateWindowTo(childWin, x0, y0, x1, y1, duration, onEnd){
+      const start = performance.now();
+      function step(now){
+        const t = Math.min(1, (now - start) / duration);
+        const eased = t<0.5 ? 2*t*t : -1 + (4-2*t)*t;
+        const curX = Math.round(x0 + (x1 - x0) * eased);
+        const curY = Math.round(y0 + (y1 - y0) * eased);
+        try{ childWin.moveTo(curX, curY); } catch(e){}
+        if (t < 1) requestAnimationFrame(step);
+        else if (onEnd) onEnd();
+      }
+      requestAnimationFrame(step);
+    }
+
+    function shuffledPositions(){
+      const arr = basePositions.map(p => ({...p}));
+      for (let i=arr.length-1;i>0;i--){
+        const j = Math.floor(Math.random()*(i+1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    // Giai đoạn 1: swap loạn
+    setTimeout(() => {
+      const endTime = Date.now() + movePeriod;
+      function doSwapRound(){
+        if (Date.now() >= endTime) {
+          arrangeCircle();
+          return;
+        }
+        const targets = shuffledPositions();
+        for (let i=0;i<wins.length;i++){
+          const entry = wins[i];
+          const tx = targets[i].left;
+          const ty = targets[i].top;
+          animateWindowTo(entry.win, entry.x, entry.y, tx, ty, animDuration, () => {
+            entry.x = tx; entry.y = ty;
+          });
+        }
+        setTimeout(doSwapRound, swapInterval);
+      }
+      doSwapRound();
+    }, startDelay);
+
+    // Giai đoạn 2: xếp thành vòng tròn rồi xoay vòng
+    function arrangeCircle(){
+      const centerX = screen.availWidth/2 - winW/2;
+      const centerY = screen.availHeight/2 - winH/2;
+      const radius = 250;
+
+      wins.forEach((entry,i) => {
+        const angle = (2*Math.PI*i)/numKeys;
+        const tx = centerX + radius * Math.cos(angle);
+        const ty = centerY + radius * Math.sin(angle);
+        animateWindowTo(entry.win, entry.x, entry.y, tx, ty, 600, () => {
+          entry.x = tx; entry.y = ty;
+        });
+      });
+
+      setTimeout(() => {
+        let angleOffset = 0;
+        const rotationSpeed = (2*Math.PI)/5000; // 5s/vòng
+        allowClose = true; // 🚨 chỉ bật ở đây
+
+        function rotateStep(){
+          angleOffset += rotationSpeed * 16;
+          wins.forEach((entry,i) => {
+            const a = angleOffset + (2*Math.PI*i)/numKeys;
+            const tx = centerX + radius * Math.cos(a);
+            const ty = centerY + radius * Math.sin(a);
+            try{ entry.win.moveTo(Math.round(tx), Math.round(ty)); }catch(e){}
+          });
+          requestAnimationFrame(rotateStep);
+        }
+        rotateStep();
+      },1000);
+    }
+
+    setTimeout(() => {
+      try{ window.focus(); document.body.style.display = ''; } catch(e){}
+    }, startDelay + movePeriod + 2000);
+  }
+
+  // Đóng tất cả
+  function closeAllKeys(){
+    wins.forEach(entry=>{
+      try{ entry.win.close(); }catch(e){}
+    });
+    try{ document.getElementById('bgSound').pause(); }catch(e){}
+  }
+  window.closeAllKeys = closeAllKeys;
+  window.allowClose = allowClose;
+  </script>
+</body>
+</html>
